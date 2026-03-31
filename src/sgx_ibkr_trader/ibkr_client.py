@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+from typing import Iterable
+
+import pandas as pd
+from ib_insync import Contract, IB, MarketOrder, Stock, util
+
+from .config import IBKRConfig, TradeConfig
+
+
+class IBKRClient:
+    def __init__(self, config: IBKRConfig) -> None:
+        self._config = config
+        self._ib = IB()
+
+    @property
+    def ib(self) -> IB:
+        return self._ib
+
+    def connect(self) -> None:
+        if self._ib.isConnected():
+            return
+        self._ib.connect(
+            host=self._config.host,
+            port=self._config.port,
+            clientId=self._config.client_id,
+            timeout=self._config.timeout_seconds,
+            account=self._config.account,
+        )
+
+    def disconnect(self) -> None:
+        if self._ib.isConnected():
+            self._ib.disconnect()
+
+    def make_sgx_stock(self, symbol: str) -> Contract:
+        return Stock(symbol=symbol, exchange="SGX", currency="SGD")
+
+    def fetch_history(
+        self,
+        symbols: Iterable[str],
+        duration: str,
+        bar_size: str,
+    ) -> dict[str, pd.DataFrame]:
+        output: dict[str, pd.DataFrame] = {}
+        for symbol in symbols:
+            contract = self.make_sgx_stock(symbol)
+            qualified = self._ib.qualifyContracts(contract)
+            if not qualified:
+                continue
+            bars = self._ib.reqHistoricalData(
+                qualified[0],
+                endDateTime="",
+                durationStr=duration,
+                barSizeSetting=bar_size,
+                whatToShow="TRADES",
+                useRTH=True,
+                formatDate=1,
+            )
+            frame = util.df(bars)
+            if not frame.empty:
+                output[symbol] = frame
+        return output
+
+    def place_market_order(
+        self,
+        symbol: str,
+        action: str,
+        quantity: int,
+        trade_cfg: TradeConfig,
+    ) -> str:
+        if quantity <= 0:
+            raise ValueError("quantity must be > 0")
+        contract = self.make_sgx_stock(symbol)
+        qualified = self._ib.qualifyContracts(contract)
+        if not qualified:
+            raise RuntimeError(f"Unable to qualify SGX contract for symbol={symbol}")
+
+        if trade_cfg.dry_run:
+            return f"DRY_RUN {action} {quantity} {symbol}"
+
+        if trade_cfg.order_type != "MKT":
+            raise ValueError("Only MKT order_type is supported in this version.")
+        order = MarketOrder(action=action, totalQuantity=quantity, tif=trade_cfg.tif)
+        trade = self._ib.placeOrder(qualified[0], order)
+        self._ib.sleep(1.5)
+        return str(trade.orderStatus.status)

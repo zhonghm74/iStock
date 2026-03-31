@@ -1,0 +1,9 @@
+"""SGX automated analysis and trading via IBKR API."""
+
+__all__ = [
+    "config",
+    "engine",
+    "ibkr_client",
+    "risk",
+    "strategy",
+]

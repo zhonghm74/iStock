@@ -1,0 +1,49 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Iterable
+
+from .config import RiskConfig
+from .models import PositionState, Signal
+
+
+@dataclass(slots=True)
+class RiskDecision:
+    approved: bool
+    quantity: int
+    reason: str
+
+
+class RiskManager:
+    def __init__(self, config: RiskConfig) -> None:
+        self._config = config
+
+    def decide(
+        self,
+        signal: Signal,
+        positions: Iterable[PositionState],
+        realized_pnl_today: float,
+    ) -> RiskDecision:
+        if signal.action == "HOLD":
+            return RiskDecision(False, 0, "signal is HOLD")
+
+        if realized_pnl_today <= -abs(self._config.daily_loss_limit):
+            return RiskDecision(False, 0, "daily loss limit reached")
+
+        position_map = {p.symbol: p for p in positions}
+        has_position = signal.symbol in position_map and position_map[signal.symbol].quantity != 0
+        open_positions = sum(1 for p in positions if p.quantity != 0)
+
+        if signal.action == "BUY" and open_positions >= self._config.max_positions and not has_position:
+            return RiskDecision(False, 0, "max_positions reached")
+
+        qty = int(self._config.max_capital_per_trade // max(signal.last_price, 0.01))
+        if qty <= 0:
+            return RiskDecision(False, 0, "position size too small for current price")
+
+        if signal.action == "SELL":
+            if not has_position or position_map[signal.symbol].quantity <= 0:
+                return RiskDecision(False, 0, "no long position to sell")
+            qty = min(qty, position_map[signal.symbol].quantity)
+
+        return RiskDecision(True, qty, "approved by risk manager")

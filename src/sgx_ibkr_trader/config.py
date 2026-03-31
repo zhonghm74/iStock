@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+@dataclass(slots=True)
+class IBKRConfig:
+    host: str = "127.0.0.1"
+    port: int = 7497
+    client_id: int = 1
+    account: str | None = None
+    timeout_seconds: int = 10
+
+
+@dataclass(slots=True)
+class StrategyConfig:
+    symbols: list[str]
+    bar_size: str = "15 mins"
+    duration: str = "30 D"
+    fast_ma: int = 20
+    slow_ma: int = 50
+    min_avg_volume: float = 200_000
+
+
+@dataclass(slots=True)
+class RiskConfig:
+    max_capital_per_trade: float = 5_000.0
+    max_positions: int = 5
+    stop_loss_pct: float = 0.03
+    take_profit_pct: float = 0.06
+    daily_loss_limit: float = 1_000.0
+
+
+@dataclass(slots=True)
+class TradeConfig:
+    paper_trading: bool = True
+    order_type: str = "MKT"
+    tif: str = "DAY"
+    dry_run: bool = True
+    loop_seconds: int = 300
+
+
+@dataclass(slots=True)
+class AppConfig:
+    ibkr: IBKRConfig
+    strategy: StrategyConfig
+    risk: RiskConfig
+    trade: TradeConfig
+
+
+def _read_yaml(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    with path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError("Config root must be a mapping/object.")
+    return data
+
+
+def load_config(path: str | Path) -> AppConfig:
+    payload = _read_yaml(Path(path))
+
+    ibkr = payload.get("ibkr", {})
+    strategy = payload.get("strategy", {})
+    risk = payload.get("risk", {})
+    trade = payload.get("trade", {})
+
+    symbols = strategy.get("symbols")
+    if not symbols or not isinstance(symbols, list):
+        raise ValueError("strategy.symbols must be a non-empty list of SGX symbols.")
+
+    return AppConfig(
+        ibkr=IBKRConfig(**ibkr),
+        strategy=StrategyConfig(symbols=symbols, **{k: v for k, v in strategy.items() if k != "symbols"}),
+        risk=RiskConfig(**risk),
+        trade=TradeConfig(**trade),
+    )

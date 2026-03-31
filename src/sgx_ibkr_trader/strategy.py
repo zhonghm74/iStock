@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pandas as pd
+
+from .config import StrategyConfig
+from .models import Signal
+
+
+class MovingAverageCrossStrategy:
+    """Simple MA crossover strategy for SGX stocks."""
+
+    def __init__(self, config: StrategyConfig) -> None:
+        self._config = config
+
+    def analyze(self, symbol: str, frame: pd.DataFrame) -> Signal:
+        required = {"close", "volume"}
+        if not required.issubset(frame.columns):
+            return Signal(
+                symbol=symbol,
+                action="HOLD",
+                confidence=0.0,
+                last_price=0.0,
+                reason="historical data missing close/volume fields",
+                created_at=datetime.now(timezone.utc),
+            )
+
+        if len(frame) < self._config.slow_ma:
+            last_price = float(frame["close"].iloc[-1]) if not frame.empty else 0.0
+            return Signal(
+                symbol=symbol,
+                action="HOLD",
+                confidence=0.1,
+                last_price=last_price,
+                reason="insufficient bars for slow moving average",
+                created_at=datetime.now(timezone.utc),
+            )
+
+        close = frame["close"].astype(float)
+        volume = frame["volume"].astype(float)
+        fast = close.rolling(self._config.fast_ma).mean()
+        slow = close.rolling(self._config.slow_ma).mean()
+
+        last_price = float(close.iloc[-1])
+        avg_vol = float(volume.tail(self._config.fast_ma).mean())
+        fast_now, slow_now = float(fast.iloc[-1]), float(slow.iloc[-1])
+
+        if avg_vol < self._config.min_avg_volume:
+            return Signal(
+                symbol=symbol,
+                action="HOLD",
+                confidence=0.2,
+                last_price=last_price,
+                reason=f"low liquidity avg_vol={avg_vol:.0f}",
+                created_at=datetime.now(timezone.utc),
+            )
+
+        spread = abs(fast_now - slow_now) / max(last_price, 0.01)
+        confidence = min(0.95, max(0.25, spread * 40))
+
+        if fast_now > slow_now:
+            action, reason = "BUY", f"fast_ma({fast_now:.3f}) above slow_ma({slow_now:.3f})"
+        elif fast_now < slow_now:
+            action, reason = "SELL", f"fast_ma({fast_now:.3f}) below slow_ma({slow_now:.3f})"
+        else:
+            action, reason, confidence = "HOLD", "moving averages equal", 0.3
+
+        return Signal(
+            symbol=symbol,
+            action=action,
+            confidence=confidence,
+            last_price=last_price,
+            reason=reason,
+            created_at=datetime.now(timezone.utc),
+        )

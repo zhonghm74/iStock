@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sgx-ibkr-trader"
+version = "0.1.0"
+description = "Automated SGX stock analysis and trading via Interactive Brokers API."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "ib-insync",
+    "pandas",
+    "PyYAML",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[project.scripts]
+sgx-ibkr-trader = "sgx_ibkr_trader.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

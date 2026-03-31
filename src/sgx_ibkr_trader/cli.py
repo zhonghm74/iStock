@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import time
+from pathlib import Path
+
+from .config import load_config
+from .engine import TradingEngine
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Automated SGX stock analysis and trading using IBKR API."
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config.example.yaml"),
+        help="Path to YAML config file.",
+    )
+    parser.add_argument(
+        "--loop",
+        action="store_true",
+        help="Run continuously (sleep interval from trade.loop_seconds).",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Log level.",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+    )
+    cfg = load_config(args.config)
+    engine = TradingEngine(cfg)
+
+    try:
+        if args.loop:
+            while True:
+                report = engine.run_once()
+                print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+                time.sleep(max(cfg.trade.loop_seconds, 1))
+        else:
+            report = engine.run_once()
+            print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+    finally:
+        engine.close()
+
+
+if __name__ == "__main__":
+    main()

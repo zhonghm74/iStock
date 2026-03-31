@@ -1,0 +1,30 @@
+ibkr:
+  host: "127.0.0.1"
+  port: 7497
+  client_id: 12
+  account: null
+  timeout_seconds: 10
+
+strategy:
+  # SGX symbols (examples): D05=DBS, O39=OCBC, U11=UOB
+  symbols: ["D05", "O39", "U11"]
+  bar_size: "15 mins"
+  duration: "30 D"
+  fast_ma: 20
+  slow_ma: 50
+  min_avg_volume: 200000
+
+risk:
+  max_capital_per_trade: 5000
+  max_positions: 5
+  stop_loss_pct: 0.03
+  take_profit_pct: 0.06
+  daily_loss_limit: 1000
+
+trade:
+  # Set to false only after validating logic in paper trading.
+  paper_trading: true
+  order_type: "MKT"
+  tif: "DAY"
+  dry_run: true
+  loop_seconds: 300

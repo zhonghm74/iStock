@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+import logging
+from dataclasses import asdict
+
+from .config import AppConfig
+from .ibkr_client import IBKRClient
+from .models import PositionState, Signal
+from .risk import RiskManager
+from .strategy import MovingAverageCrossStrategy
+
+logger = logging.getLogger(__name__)
+
+
+class TradingEngine:
+    def __init__(self, config: AppConfig) -> None:
+        self._config = config
+        self._client = IBKRClient(config.ibkr)
+        self._strategy = MovingAverageCrossStrategy(config.strategy)
+        self._risk = RiskManager(config.risk)
+
+    def _read_positions(self) -> list[PositionState]:
+        positions = []
+        for p in self._client.ib.positions():
+            contract = getattr(p, "contract", None)
+            symbol = getattr(contract, "symbol", "")
+            if not symbol:
+                continue
+            positions.append(
+                PositionState(
+                    symbol=symbol,
+                    quantity=int(getattr(p, "position", 0)),
+                    average_cost=float(getattr(p, "avgCost", 0.0)),
+                )
+            )
+        return positions
+
+    def _read_realized_pnl_today(self) -> float:
+        # Placeholder implementation; extend with account PnL subscriptions if needed.
+        return 0.0
+
+    def run_once(self) -> list[dict]:
+        self._client.connect()
+        frames = self._client.fetch_history(
+            symbols=self._config.strategy.symbols,
+            duration=self._config.strategy.duration,
+            bar_size=self._config.strategy.bar_size,
+        )
+        positions = self._read_positions()
+        realized = self._read_realized_pnl_today()
+
+        report: list[dict] = []
+        for symbol in self._config.strategy.symbols:
+            frame = frames.get(symbol)
+            if frame is None:
+                report.append(
+                    {
+                        "symbol": symbol,
+                        "action": "HOLD",
+                        "status": "SKIP",
+                        "reason": "no data returned from IBKR",
+                    }
+                )
+                continue
+
+            signal = self._strategy.analyze(symbol, frame)
+            report.append(self._apply_signal(signal, positions, realized))
+        return report
+
+    def _apply_signal(
+        self,
+        signal: Signal,
+        positions: list[PositionState],
+        realized: float,
+    ) -> dict:
+        decision = self._risk.decide(signal, positions, realized)
+        payload = {
+            "symbol": signal.symbol,
+            "signal": asdict(signal),
+            "risk": asdict(decision),
+        }
+
+        if not decision.approved:
+            payload["status"] = "REJECTED"
+            payload["order_result"] = None
+            return payload
+
+        order_result = self._client.place_market_order(
+            symbol=signal.symbol,
+            action=signal.action,
+            quantity=decision.quantity,
+            trade_cfg=self._config.trade,
+        )
+        payload["status"] = "ORDER_SENT"
+        payload["order_result"] = order_result
+        return payload
+
+    def close(self) -> None:
+        self._client.disconnect()

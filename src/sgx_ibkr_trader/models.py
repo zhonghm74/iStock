@@ -1,0 +1,21 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+
+
+@dataclass(slots=True)
+class Signal:
+    symbol: str
+    action: str  # BUY / SELL / HOLD
+    confidence: float
+    last_price: float
+    reason: str
+    created_at: datetime
+
+
+@dataclass(slots=True)
+class PositionState:
+    symbol: str
+    quantity: int
+    average_cost: float

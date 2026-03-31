@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+import pandas as pd
+
+from sgx_ibkr_trader.config import StrategyConfig
+from sgx_ibkr_trader.strategy import MovingAverageCrossStrategy
+
+
+def _frame(prices: list[float], volumes: list[float]) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "close": prices,
+            "volume": volumes,
+        }
+    )
+
+
+def test_buy_signal_when_fast_ma_above_slow_ma() -> None:
+    cfg = StrategyConfig(symbols=["D05"], fast_ma=3, slow_ma=5, min_avg_volume=1000)
+    strategy = MovingAverageCrossStrategy(cfg)
+    data = _frame(
+        prices=[1.00, 1.01, 1.02, 1.04, 1.08, 1.10, 1.12],
+        volumes=[5000, 5200, 5100, 5300, 5400, 5600, 5800],
+    )
+    sig = strategy.analyze("D05", data)
+    assert sig.action == "BUY"
+    assert sig.last_price == 1.12
+
+
+def test_hold_signal_on_low_liquidity() -> None:
+    cfg = StrategyConfig(symbols=["D05"], fast_ma=3, slow_ma=5, min_avg_volume=50_000)
+    strategy = MovingAverageCrossStrategy(cfg)
+    data = _frame(
+        prices=[1.00, 1.02, 1.01, 1.03, 1.04, 1.05],
+        volumes=[2000, 2100, 1900, 2200, 2300, 2400],
+    )
+    sig = strategy.analyze("D05", data)
+    assert sig.action == "HOLD"
+    assert "low liquidity" in sig.reason
